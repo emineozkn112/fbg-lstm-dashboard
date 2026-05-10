@@ -1,0 +1,12 @@
+{
+    "feature_column": "delta_lambda_filtered",
+    "label_column": "label",
+    "window_size": 30,
+    "feature_count": 1,
+    "class_names": [
+        "mild_damage",
+        "normal",
+        "severe_damage"
+    ],
+    "source": "C:\\Users\\Digital\\OneDrive\\Desktop\\fbg_lstm\\fbg_filtered_dataset.csv"
+}
