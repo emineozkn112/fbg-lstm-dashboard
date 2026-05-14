@@ -333,7 +333,8 @@ feature_column = st.sidebar.selectbox(
 has_label = "label" in df.columns
 
 st.sidebar.subheader("LSTM Ayarları")
-lstm_window_size = st.sidebar.slider("LSTM pencere boyutu", 10, 100, 30, 5)
+lstm_window_size = st.sidebar.slider("LSTM pencere boyutu", 10, 128, 32, 2)
+lstm_stride = st.sidebar.slider("LSTM stride", 1, 32, 8, 1)
 lstm_epochs = st.sidebar.slider("LSTM epoch sayısı", 5, 60, 20, 5)
 
 st.sidebar.subheader("CNN Ayarları")
@@ -388,7 +389,7 @@ with lstm_tab:
 
     if st.button("LSTM Modelini Eğit ve Kaydet", disabled=lstm_train_disabled):
         validate_columns(df, feature_column, needs_label=True)
-        x_windows, y_text = make_windows(df, feature_column, "label", lstm_window_size, stride=1)
+        x_windows, y_text = make_windows(df, feature_column, "label", lstm_window_size, stride=lstm_stride)
 
         encoder = LabelEncoder()
         y_numeric = encoder.fit_transform(y_text)
@@ -429,7 +430,7 @@ with lstm_tab:
             "feature_column": feature_column,
             "label_column": "label",
             "window_size": int(lstm_window_size),
-            "stride": 1,
+            "stride": int(lstm_stride),
             "feature_count": int(x_train_scaled.shape[2]),
             "class_names": encoder.classes_.tolist(),
             "source": str(data_source),
