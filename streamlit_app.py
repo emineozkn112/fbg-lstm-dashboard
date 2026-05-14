@@ -160,7 +160,7 @@ def build_lstm_model(window_size, feature_count, class_count):
 
 
 def build_cnn_model(window_size, feature_count, class_count):
-    # İyileştirilmiş CNN: Dropout artırıldı, filtre sayıları sadeleştirildi (ezberlemeyi önlemek için)
+    # İyileştirilmiş CNN: Dropout artırıldı, filtreler sadeleştirildi.
     model = Sequential(
         [
             Input(shape=(window_size, feature_count)),
@@ -335,7 +335,7 @@ feature_column = st.sidebar.selectbox(
 
 has_label = "label" in df.columns
 
-# Adil kıyaslama için varsayılan değerler 32/8 olarak güncellendi
+# Adil kıyas için varsayılanlar 32/8 olarak ayarlandı
 st.sidebar.subheader("LSTM Ayarları")
 lstm_window_size = st.sidebar.slider("LSTM pencere boyutu", 10, 128, 32, 2)
 lstm_stride = st.sidebar.slider("LSTM stride", 1, 32, 8, 1)
@@ -392,7 +392,7 @@ with lstm_tab:
 
     if st.button("LSTM Modelini Eğit ve Kaydet", disabled=lstm_train_disabled):
         validate_columns(df, feature_column, needs_label=True)
-        # Stride parametresi bağlandı
+        # Stride parametresi eklendi
         x_windows, y_text = make_windows(df, feature_column, "label", lstm_window_size, stride=lstm_stride)
 
         encoder = LabelEncoder()
@@ -446,9 +446,9 @@ with lstm_tab:
         show_results("LSTM", test_accuracy, test_loss, len(x_windows), history, cm, encoder, y_test, y_pred)
 
 with cnn_tab:
-    st.subheader("1D-CNN Model Eğitimi (Ezberleme Korumalı)")
+    st.subheader("1D-CNN Model Eğitimi (Overfitting Korumalı)")
     st.write(
-        "Bu CNN versiyonu yüksek Dropout ve erken durdurma ile overfitting riskini minimize eder."
+        "Bu CNN versiyonu yüksek Dropout ve erken durdurma ile ezberlemeyi minimize eder."
     )
 
     cnn_train_disabled = not has_label or len(df) <= cnn_window_size
@@ -480,7 +480,7 @@ with cnn_tab:
             class_count=len(encoder.classes_),
         )
 
-        # Patience 3'e düşürüldü (Ezberleme başladığı saniyede eğitimi keser)
+        # Patience 3'e düşürüldü: Ezberleme başladığı an durur.
         callbacks = [
             EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True),
             ReduceLROnPlateau(monitor="val_loss", patience=2, factor=0.5),
@@ -490,7 +490,7 @@ with cnn_tab:
             history = model.fit(
                 x_train,
                 y_train,
-                validation_data=(X_val, y_val),
+                validation_data=(x_val, y_val),
                 epochs=cnn_epochs,
                 batch_size=8,
                 callbacks=callbacks,
@@ -535,32 +535,32 @@ with live_tab:
             st.success("CNN modeli aktif edildi.")
 
     if not active_model_ready():
-        st.warning("Tahmin için önce bir modeli eğitin veya yükleyin.")
+        st.warning("Önce bir modeli eğitin veya yükleyin.")
     else:
         model_type = st.session_state["active_model_type"]
         config = st.session_state["active_config"]
         active_feature = config["feature_column"]
         active_window_size = int(config["window_size"])
 
-        st.write(f"Aktif model: {model_type}")
+        st.write(f"Aktif Model: {model_type}")
         
-        prediction_mode = st.radio("Veri Kaynağı:", ["CSV Son Ölçümler", "Manuel Veri Girişi"])
+        prediction_mode = st.radio("Seçenek:", ["CSV Son Ölçümler", "Manuel Veri"])
 
         if prediction_mode == "CSV Son Ölçümler":
-            latest_vals = df[active_feature].tail(active_window_size).values
-            st.line_chart(latest_vals)
-            if st.button("Şimdi Tahmin Et"):
-                label, conf, _ = predict_window(latest_vals)
-                st.metric("Tahmin Edilen Durum", label, f"%{conf*100:.2f} güven")
+            latest_values = df[active_feature].tail(active_window_size).values
+            st.line_chart(latest_values)
+            if st.button("Tahmin Et"):
+                label, conf, _ = predict_window(latest_values)
+                st.metric("Sonuç", label, f"%{conf*100:.2f} güven")
         else:
-            manual_input = st.text_area(f"{active_window_size} adet sinyal değerini virgülle girin")
-            if st.button("Manuel Tahmin Et"):
+            manual_text = st.text_area(f"{active_window_size} adet değer girin (virgülle ayırın)")
+            if st.button("Manuel Tahmin"):
                 try:
-                    vals = [float(v.strip()) for v in manual_input.split(",") if v.strip()]
-                    if len(vals) == active_window_size:
-                        label, conf, _ = predict_window(vals)
-                        st.metric("Tahmin Edilen Durum", label, f"%{conf*100:.2f} güven")
+                    m_vals = [float(v.strip()) for v in manual_text.split(",") if v.strip()]
+                    if len(m_vals) == active_window_size:
+                        label, conf, _ = predict_window(m_vals)
+                        st.metric("Sonuç", label, f"%{conf*100:.2f} güven")
                     else:
-                        st.error(f"{active_window_size} değer olmalı, sen {len(vals)} tane girdin.")
+                        st.error(f"Eksik değer! {active_window_size} tane olmalı.")
                 except:
-                    st.error("Sayısal veri giriniz.")
+                    st.error("Hatalı giriş.")
