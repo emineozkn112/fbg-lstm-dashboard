@@ -160,20 +160,23 @@ def build_lstm_model(window_size, feature_count, class_count):
 
 
 def build_cnn_model(window_size, feature_count, class_count):
+    # İyileştirilmiş CNN: Dropout artırıldı, filtreler sadeleştirildi.
     model = Sequential(
         [
             Input(shape=(window_size, feature_count)),
+            Conv1D(8, 3, activation="relu", padding="same"),
+            BatchNormalization(),
+            MaxPooling1D(2),
+            Dropout(0.40),
+            
             Conv1D(16, 3, activation="relu", padding="same"),
             BatchNormalization(),
             MaxPooling1D(2),
-            Dropout(0.25),
-            Conv1D(32, 3, activation="relu", padding="same"),
-            BatchNormalization(),
-            MaxPooling1D(2),
-            Dropout(0.30),
+            Dropout(0.50),
+            
             Flatten(),
-            Dense(64, activation="relu"),
-            Dropout(0.35),
+            Dense(32, activation="relu"),
+            Dropout(0.50),
             Dense(class_count, activation="softmax"),
         ]
     )
@@ -332,6 +335,7 @@ feature_column = st.sidebar.selectbox(
 
 has_label = "label" in df.columns
 
+# Adil kıyas için varsayılanlar 32/8 olarak ayarlandı
 st.sidebar.subheader("LSTM Ayarları")
 lstm_window_size = st.sidebar.slider("LSTM pencere boyutu", 10, 128, 32, 2)
 lstm_stride = st.sidebar.slider("LSTM stride", 1, 32, 8, 1)
@@ -340,7 +344,7 @@ lstm_epochs = st.sidebar.slider("LSTM epoch sayısı", 5, 60, 20, 5)
 st.sidebar.subheader("CNN Ayarları")
 cnn_window_size = st.sidebar.slider("CNN pencere boyutu", 16, 128, 32, 8)
 cnn_stride = st.sidebar.slider("CNN stride", 1, 32, 8, 1)
-cnn_epochs = st.sidebar.slider("CNN epoch sayısı", 5, 80, 50, 5)
+cnn_epochs = st.sidebar.slider("CNN epoch sayısı", 5, 100, 60, 5)
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Satır Sayısı", len(df))
@@ -379,16 +383,16 @@ with overview_tab:
 with lstm_tab:
     st.subheader("LSTM Model Eğitimi")
     st.write(
-        "LSTM, zaman serisindeki ardışık ölçümler arasındaki ilişkiyi öğrenir. "
-        "Bu bölüm mevcut panelindeki RNN/LSTM tabanlı hasar sınıflandırma akışıdır."
+        "LSTM, zaman serisindeki ardışık ölçümler arasındaki ilişkiyi öğrenir."
     )
 
     lstm_train_disabled = not has_label or len(df) <= lstm_window_size
     if lstm_train_disabled:
-        st.warning("LSTM eğitimi için CSV içinde label sütunu olmalı ve veri pencere boyutundan uzun olmalı.")
+        st.warning("LSTM eğitimi için CSV içinde label sütunu olmalı.")
 
     if st.button("LSTM Modelini Eğit ve Kaydet", disabled=lstm_train_disabled):
         validate_columns(df, feature_column, needs_label=True)
+        # Stride parametresi eklendi
         x_windows, y_text = make_windows(df, feature_column, "label", lstm_window_size, stride=lstm_stride)
 
         encoder = LabelEncoder()
@@ -441,26 +445,15 @@ with lstm_tab:
         store_active_model("LSTM", model, scaler, encoder, config)
         show_results("LSTM", test_accuracy, test_loss, len(x_windows), history, cm, encoder, y_test, y_pred)
 
-    st.subheader("Kayıtlı LSTM Modeli")
-    if st.button("Kayıtlı LSTM Modelini Yükle", disabled=not artifacts_exist(LSTM_ARTIFACTS)):
-        model, scaler, encoder, config = load_artifacts(LSTM_ARTIFACTS)
-        store_active_model("LSTM", model, scaler, encoder, config)
-        st.success("Kayıtlı LSTM modeli aktif edildi.")
-
-    if not artifacts_exist(LSTM_ARTIFACTS):
-        st.info("Henüz kayıtlı LSTM modeli bulunamadı. Önce LSTM modelini eğitip kaydet.")
-
 with cnn_tab:
-    st.subheader("1D-CNN Model Eğitimi")
+    st.subheader("1D-CNN Model Eğitimi (Overfitting Korumalı)")
     st.write(
-        "CNN bölümü, yüklediğin zip paketindeki Zeynep'in 1D-CNN mimarisinden alınmıştır. "
-        "Conv1D katmanları sinyal üzerindeki yerel örüntüleri yakalar; bu yüzden LSTM ile "
-        "pattern recognition açısından karşılaştırma yapmak için uygundur."
+        "Bu CNN versiyonu yüksek Dropout ve erken durdurma ile ezberlemeyi minimize eder."
     )
 
     cnn_train_disabled = not has_label or len(df) <= cnn_window_size
     if cnn_train_disabled:
-        st.warning("CNN eğitimi için CSV içinde label sütunu olmalı ve veri pencere boyutundan uzun olmalı.")
+        st.warning("CNN eğitimi için CSV içinde label sütunu olmalı.")
 
     if st.button("CNN Modelini Eğit ve Kaydet", disabled=cnn_train_disabled):
         validate_columns(df, feature_column, needs_label=True)
@@ -478,11 +471,7 @@ with cnn_tab:
             stratify=y_numeric,
         )
         x_train, x_val, y_train, y_val = train_test_split(
-            x_train,
-            y_train,
-            test_size=0.2,
-            random_state=42,
-            stratify=y_train,
+            x_train, y_train, test_size=0.2, random_state=42, stratify=y_train
         )
 
         model = build_cnn_model(
@@ -491,9 +480,10 @@ with cnn_tab:
             class_count=len(encoder.classes_),
         )
 
+        # Patience 3'e düşürüldü: Ezberleme başladığı an durur.
         callbacks = [
-            EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
-            ReduceLROnPlateau(monitor="val_loss", patience=3, factor=0.5),
+            EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True),
+            ReduceLROnPlateau(monitor="val_loss", patience=2, factor=0.5),
         ]
 
         with st.spinner("CNN modeli eğitiliyor..."):
@@ -528,15 +518,6 @@ with cnn_tab:
         store_active_model("1D-CNN", model, scaler, encoder, config)
         show_results("1D-CNN", test_accuracy, test_loss, len(x_windows), history, cm, encoder, y_test, y_pred)
 
-    st.subheader("Kayıtlı CNN Modeli")
-    if st.button("Kayıtlı CNN Modelini Yükle", disabled=not artifacts_exist(CNN_ARTIFACTS)):
-        model, scaler, encoder, config = load_artifacts(CNN_ARTIFACTS)
-        store_active_model("1D-CNN", model, scaler, encoder, config)
-        st.success("Kayıtlı CNN modeli aktif edildi.")
-
-    if not artifacts_exist(CNN_ARTIFACTS):
-        st.info("Henüz kayıtlı CNN modeli bulunamadı. Önce CNN modelini eğitip kaydet.")
-
 with live_tab:
     st.subheader("Canlı Tahmin Paneli")
 
@@ -554,80 +535,32 @@ with live_tab:
             st.success("CNN modeli aktif edildi.")
 
     if not active_model_ready():
-        st.warning("Tahmin için önce LSTM veya CNN modelini eğit ya da kayıtlı modeli yükle.")
+        st.warning("Önce bir modeli eğitin veya yükleyin.")
     else:
         model_type = st.session_state["active_model_type"]
         config = st.session_state["active_config"]
         active_feature = config["feature_column"]
         active_window_size = int(config["window_size"])
 
-        st.write("Aktif model:")
-        st.json(config)
+        st.write(f"Aktif Model: {model_type}")
+        
+        prediction_mode = st.radio("Seçenek:", ["CSV Son Ölçümler", "Manuel Veri"])
 
-        if active_feature not in df.columns:
-            st.error(f"Aktif model {active_feature} sütununu bekliyor, ancak bu CSV içinde yok.")
+        if prediction_mode == "CSV Son Ölçümler":
+            latest_values = df[active_feature].tail(active_window_size).values
+            st.line_chart(latest_values)
+            if st.button("Tahmin Et"):
+                label, conf, _ = predict_window(latest_values)
+                st.metric("Sonuç", label, f"%{conf*100:.2f} güven")
         else:
-            st.write(
-                f"{model_type} modeli son {active_window_size} ölçümü kullanarak tahmin yapacak. "
-                f"Kullanılan sütun: {active_feature}"
-            )
-
-            prediction_mode = st.radio(
-                "Tahmin veri kaynağı",
-                ["CSV içindeki son ölçümler", "Manuel değer gir"],
-                horizontal=True,
-            )
-
-            if prediction_mode == "CSV içindeki son ölçümler":
-                if len(df) < active_window_size:
-                    st.error("CSV, modelin beklediği pencere boyutundan kısa.")
-                else:
-                    latest_values = df[active_feature].tail(active_window_size).values
-                    st.line_chart(pd.DataFrame({active_feature: latest_values}))
-
-                    if st.button("Son Ölçümlerle Tahmin Et"):
-                        predicted_label, confidence, probabilities = predict_window(latest_values)
-                        st.success(f"Tahmin: {predicted_label}")
-                        st.metric("Güven", round(confidence, 4))
-                        probability_df = pd.DataFrame(
-                            {
-                                "sınıf": st.session_state["active_encoder"].classes_,
-                                "olasılık": probabilities,
-                            }
-                        )
-                        st.dataframe(probability_df, use_container_width=True)
-
-            else:
-                st.write(
-                    f"{active_window_size} adet değeri virgülle ayırarak gir. "
-                    "Örnek: 6.2, 6.3, 6.4"
-                )
-                manual_text = st.text_area("Sinyal değerleri")
-
-                if st.button("Manuel Değerlerle Tahmin Et"):
-                    try:
-                        manual_values = [
-                            float(value.strip())
-                            for value in manual_text.replace("\n", ",").split(",")
-                            if value.strip()
-                        ]
-
-                        if len(manual_values) != active_window_size:
-                            st.error(
-                                f"Model {active_window_size} değer bekliyor, "
-                                f"sen {len(manual_values)} değer girdin."
-                            )
-                        else:
-                            predicted_label, confidence, probabilities = predict_window(manual_values)
-                            st.success(f"Tahmin: {predicted_label}")
-                            st.metric("Güven", round(confidence, 4))
-                            probability_df = pd.DataFrame(
-                                {
-                                    "sınıf": st.session_state["active_encoder"].classes_,
-                                    "olasılık": probabilities,
-                                }
-                            )
-                            st.dataframe(probability_df, use_container_width=True)
-
-                    except ValueError:
-                        st.error("Lütfen sadece sayısal değerler gir.")
+            manual_text = st.text_area(f"{active_window_size} adet değer girin (virgülle ayırın)")
+            if st.button("Manuel Tahmin"):
+                try:
+                    m_vals = [float(v.strip()) for v in manual_text.split(",") if v.strip()]
+                    if len(m_vals) == active_window_size:
+                        label, conf, _ = predict_window(m_vals)
+                        st.metric("Sonuç", label, f"%{conf*100:.2f} güven")
+                    else:
+                        st.error(f"Eksik değer! {active_window_size} tane olmalı.")
+                except:
+                    st.error("Hatalı giriş.")
